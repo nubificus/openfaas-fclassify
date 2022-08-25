@@ -1,0 +1,64 @@
+FROM ubuntu:18.04 as vaccel-builder
+
+ENV DEBIAN_FRONTEND="noninteractive"
+
+RUN apt-get update && apt-get install -y git cmake g++
+
+RUN git clone https://github.com/cloudkernels/virtio-accel.git && \
+    cp virtio-accel/accel.h /usr/local/include
+
+RUN echo "running"
+RUN git clone https://github.com/cloudkernels/vaccelrt.git -b fix_gcc_warns && \
+    cd vaccelrt && git submodule update --init && \
+    mkdir build && \
+    cd build && \
+    cmake .. \ 
+       -DCMAKE_BUILD_TYPE=Release \
+       -DBUILD_PLUGIN_VIRTIO=ON && \
+    make install
+
+FROM vaccel-builder as builder
+
+ENV PKG_CONFIG_PATH=/usr/local/share
+
+COPY --from=vaccel-builder /usr/local/lib/libvaccel* /usr/local/lib/
+COPY --from=vaccel-builder /usr/local/include/* /usr/local/include/
+COPY --from=vaccel-builder /usr/local/share/vaccel.pc /usr/local/share/
+
+RUN git clone https://github.com/nubificus/stdinout.git -b vaccel && \
+    cd stdinout && \
+    make
+
+FROM ghcr.io/openfaas/classic-watchdog:0.1.4 as watchdog
+
+FROM ubuntu:20.04
+
+RUN mkdir -p /home/app
+
+COPY --from=watchdog /fwatchdog /usr/bin/fwatchdog
+RUN chmod +x /usr/bin/fwatchdog
+
+# Add non root user
+RUN adduser app && adduser app app
+RUN chown app /home/app
+
+WORKDIR /home/app
+
+USER app
+
+COPY --from=builder /stdinout/test /test
+COPY --from=builder /stdinout/libfileread.so /lib
+COPY --from=builder /usr/local/lib/libvaccel* /lib/
+
+ENV VACCEL_BACKENDS=/lib/libvaccel-virtio.so 
+ENV LD_LIBRARY_PATH=/lib/
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=3s CMD [ -e /tmp/.lock ] || exit 1
+
+CMD ["fwatchdog"]
+
+  
+
+
