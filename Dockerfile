@@ -1,30 +1,29 @@
-FROM ubuntu:latest as vaccel-release
-ENV RELEASE=v0.4.0
+FROM ubuntu:20.04 as vaccel-release
+ENV VACCEL_RELEASE=v0.4.0
 ENV DEBIAN_FRONTEND="noninteractive"
 RUN apt-get update && apt-get install -y wget
 ARG ARCH
-RUN wget https://github.com/cloudkernels/vaccel/releases/download/${RELEASE}/vaccel_x86_64_Release.tar.gz && \
-    tar -zxvf vaccel_${ARCH}_Release.zip -C /vaccel
-#COPY vaccel-Release/opt/ /vaccel
+RUN wget https://github.com/cloudkernels/vaccel/releases/download/${VACCEL_RELEASE}/vaccel_x86_64_Release.tar.gz && \
+    mkdir -p /vaccel && tar -zxvf vaccel_${ARCH}_Release.tar.gz -C /vaccel && rm vaccel_${ARCH}_Release.tar.gz
 
-
-
-FROM ubuntu:latest as builder
+FROM ubuntu:20.04 as builder
 
 COPY --from=vaccel-release /vaccel/lib/libvaccel* /usr/local/lib/
 COPY --from=vaccel-release /vaccel/include/. /usr/local/include/
 COPY --from=vaccel-release /vaccel/share/vaccel.pc /usr/local/share/
 
-RUN git clone https://github.com/nubificus/stdinout.git -b aarch64 && \
-    cd stdinout && \
-    make
+#RUN git clone https://github.com/nubificus/stdinout.git -b aarch64 && \
+#    cd stdinout && \
+#    make
 
 
 RUN apt-get update && apt-get install -y \
-        gcc
-RUN git clone https://github.com/nubificus/stdinout -b aarch64
+        build-essential make 
+#RUN git clone https://github.com/nubificus/stdinout -b aarch64
 
-WORKDIR ./stdinout
+COPY . /openfaas/
+
+WORKDIR /openfaas
 RUN make
 
 FROM debian:buster-slim
@@ -50,8 +49,6 @@ CMD ["./web-classify"]
 
 FROM functions/alpine:latest
 
-COPY test_static /test
-
 FROM ghcr.io/openfaas/classic-watchdog:0.1.4 as watchdog
 
 FROM ubuntu:20.04
@@ -67,11 +64,13 @@ RUN chown app /home/app
 
 WORKDIR /home/app
 
+RUN mkdir /run/user
+RUN chmod go+rwX /run/user
+
 USER app
 
-
-COPY --from=builder /stdinout/test /test
-COPY --from=builder /stdinout/libfileread.so /lib
+COPY --from=builder /openfaas/pipe /pipe
+COPY --from=builder /openfaas/libfileread.so /lib
 COPY --from=builder /usr/local/lib/libvaccel* /lib/
 
 ENV LD_LIBRARY_PATH=/lib/

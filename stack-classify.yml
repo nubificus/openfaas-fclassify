@@ -1,0 +1,25 @@
+provider:
+  name: openfaas
+  gateway: http://192.168.8.117:31112
+
+functions:
+  classify-image:
+    skip_build: false
+    image: registry.nubificus.co.uk/openfaas/openfaas-fclassify:latest
+    fprocess: "/pipe"
+    annotations:
+      com.openfaas.profile: kata
+    labels:
+      com.openfaas.scale.min: 1
+      com.openfaas.scale.max: 100
+      com.openfaas.scale.factor: 80
+    limits:
+      cpu: 100m
+    requests:
+      cpu: 100m
+    environment:
+      sleep_duration: 10
+      read_timeout: "15s"
+      write_timeout: "15s"
+      exec_timeout: "15s"
+
